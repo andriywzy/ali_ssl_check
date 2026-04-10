@@ -1,0 +1,24 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "alidns:DescribeDomains",
+        "alidns:DescribeDomainRecords",
+        "alidns:DescribeDomainNs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:PutObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:<your-bucket>",
+        "acs:oss:*:*:<your-bucket>/<your-prefix>/*"
+      ]
+    }
+  ]
+}

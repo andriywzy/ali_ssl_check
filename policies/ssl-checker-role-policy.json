@@ -1,0 +1,16 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:GetObject",
+        "oss:PutObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:<your-bucket>",
+        "acs:oss:*:*:<your-bucket>/<your-prefix>/*"
+      ]
+    }
+  ]
+}
