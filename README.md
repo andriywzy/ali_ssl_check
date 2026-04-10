@@ -241,6 +241,7 @@ FC_TARGET_PYTHON=39 ./build_fc_packages.sh
 - FC/SLS/告警模板：`deploy/templates/`
 - 渲染脚本：`deploy/render_templates.sh`
 - CLI 部署脚本：`deploy/deploy_cli.sh`
+- 分步验证脚本：`deploy/verify_steps.sh`
 - 详细说明：`deploy/README.md`
 
 快速开始：
@@ -250,4 +251,5 @@ cp deploy/templates/vars.env.tpl deploy/vars.env
 source deploy/vars.env
 ./deploy/render_templates.sh
 ./deploy/deploy_cli.sh all
+./deploy/verify_steps.sh all
 ```

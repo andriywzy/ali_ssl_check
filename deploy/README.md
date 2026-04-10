@@ -46,6 +46,32 @@ source deploy/vars.env
 ./deploy/deploy_cli.sh all
 ```
 
+## 3.1 每一步验证（便于调模板）
+
+你可以在每个阶段后执行对应验证：
+
+```bash
+./deploy/verify_steps.sh local
+./deploy/verify_steps.sh ram
+./deploy/verify_steps.sh fc
+./deploy/verify_steps.sh invoke
+./deploy/verify_steps.sh sls
+./deploy/verify_steps.sh etl
+./deploy/verify_steps.sh alert
+```
+
+全链路验证：
+
+```bash
+./deploy/verify_steps.sh all
+```
+
+也可通过主脚本调用：
+
+```bash
+./deploy/deploy_cli.sh verify
+```
+
 ## 4. 控制台一次初始化（内容模板 + 行动策略）
 
 渲染后查看：

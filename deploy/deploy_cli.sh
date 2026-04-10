@@ -12,7 +12,7 @@ ACTION="${1:-all}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./deploy/deploy_cli.sh [all|render|ram|fc|invoke|sls|etl|alert]
+  ./deploy/deploy_cli.sh [all|render|ram|fc|invoke|sls|etl|alert|verify]
 
 Stages:
   render  Render all templates from deploy/templates -> deploy/rendered
@@ -22,6 +22,7 @@ Stages:
   sls     Create target SLS logstore and index
   etl     Create/update and start SLS ETL rewrite task
   alert   Create/update and enable SLS alert
+  verify  Verify deployment steps (delegates to ./deploy/verify_steps.sh)
   all     Execute: render -> ram -> fc -> invoke -> sls -> etl -> alert
 EOF
 }
@@ -325,6 +326,9 @@ main() {
     alert)
       render_all
       stage_alert
+      ;;
+    verify)
+      "${SCRIPT_DIR}/verify_steps.sh" all
       ;;
     all)
       render_all
