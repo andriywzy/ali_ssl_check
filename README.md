@@ -35,11 +35,11 @@ flowchart TD
 
 ## 目录
 
-- `/Users/andriywzy/Desktop/scripts/ssl_check/domain_inventory/index.py`
-- `/Users/andriywzy/Desktop/scripts/ssl_check/ssl_checker/index.py`
-- `/Users/andriywzy/Desktop/scripts/ssl_check/common`
-- `/Users/andriywzy/Desktop/scripts/ssl_check/policies`
-- `/Users/andriywzy/Desktop/scripts/ssl_check/tests`
+- `domain_inventory/index.py`
+- `ssl_checker/index.py`
+- `common/`
+- `policies/`
+- `tests/`
 
 ## 运行方式
 
@@ -99,12 +99,12 @@ flowchart TD
 
 信任策略使用：
 
-- `/Users/andriywzy/Desktop/scripts/ssl_check/policies/fc-execution-trust-policy.json`
+- `policies/fc-execution-trust-policy.json`
 
 权限策略参考：
 
-- `/Users/andriywzy/Desktop/scripts/ssl_check/policies/domain-inventory-role-policy.json`
-- `/Users/andriywzy/Desktop/scripts/ssl_check/policies/ssl-checker-role-policy.json`
+- `policies/domain-inventory-role-policy.json`
+- `policies/ssl-checker-role-policy.json`
 
 如果由 RAM 用户创建或更新函数、绑定角色或配置触发器，额外给该 RAM 用户授予 `ram:PassRole`。
 
@@ -196,7 +196,7 @@ python3 -m pytest
 
 不能直接在 macOS 上把本机依赖装进 zip 再上传到 FC。函数计算运行在 Linux 上，如果包里混入 Darwin 的 `.so`，会报 `invalid ELF header`。
 
-项目里的打包脚本 [build_fc_packages.sh](/Users/andriywzy/Desktop/scripts/ssl_check/build_fc_packages.sh) 已经改成按 Linux 目标平台下载 wheel：
+项目里的打包脚本 [build_fc_packages.sh](./build_fc_packages.sh) 已经改成按 Linux 目标平台下载 wheel：
 
 ```bash
 ./build_fc_packages.sh
@@ -230,3 +230,24 @@ FC_TARGET_PYTHON=39 ./build_fc_packages.sh
 - 当前实现只检查 `443/HTTPS`。
 - 当前实现不会主动发告警，只负责把巡检结果写入 OSS。
 - 固定目录模式下，新执行会覆盖上一次的 CSV/summary 文件，但 CSV 内仍保留本次执行的 `run_id`。
+
+## 模板化部署（新增）
+
+仓库已提供完整模板化部署目录：`deploy/`
+
+核心文件：
+
+- 参数模板：`deploy/templates/vars.env.tpl`
+- FC/SLS/告警模板：`deploy/templates/`
+- 渲染脚本：`deploy/render_templates.sh`
+- CLI 部署脚本：`deploy/deploy_cli.sh`
+- 详细说明：`deploy/README.md`
+
+快速开始：
+
+```bash
+cp deploy/templates/vars.env.tpl deploy/vars.env
+source deploy/vars.env
+./deploy/render_templates.sh
+./deploy/deploy_cli.sh all
+```
