@@ -36,10 +36,8 @@ export RAM_ROLE_ARN_DOMAIN_INVENTORY="acs:ram::${ACCOUNT_ID}:role/${RAM_ROLE_DOM
 export RAM_ROLE_ARN_SSL_CHECKER="acs:ram::${ACCOUNT_ID}:role/${RAM_ROLE_SSL_CHECKER}"
 
 # -------------------------------
-# FC Service / Function
+# FC3 Function
 # -------------------------------
-export FC_SERVICE_NAME="ssl-check-service"
-export FC_SERVICE_DESCRIPTION="ssl certificate check pipeline"
 export FC_LOG_PROJECT="your-sls-project"
 export FC_LOG_LOGSTORE="your-fc-logstore"
 export FC_RUNTIME="python3.12"
@@ -79,6 +77,9 @@ export SSL_REPORT_SUMMARY_OBJECT_KEY="${OSS_PREFIX}/ssl-report/summary.json"
 # -------------------------------
 export SLS_PROJECT="your-sls-project"
 export SLS_SOURCE_LOGSTORE="your-fc-logstore"
+export SLS_PROJECT_DESCRIPTION="ssl check observability project"
+export SLS_SOURCE_LOGSTORE_TTL_DAYS="30"
+export SLS_SOURCE_LOGSTORE_SHARD_COUNT="2"
 export SLS_TARGET_LOGSTORE="ssl-expiring-alerts"
 export SLS_TARGET_LOGSTORE_TTL_DAYS="30"
 export SLS_TARGET_LOGSTORE_SHARD_COUNT="2"
@@ -96,15 +97,20 @@ export SLS_ALERT_NAME="ssl-cert-expiring-alert"
 export SLS_ALERT_DISPLAY_NAME="SSL Certificate Expiring Alert"
 export SLS_ALERT_DESCRIPTION="alert for expiring ssl certificates"
 export SLS_ALERT_SEVERITY="6"
-export SLS_ALERT_EVAL_INTERVAL="1m"
+export SLS_ALERT_EVAL_INTERVAL="1d"
 export SLS_ALERT_MUTE_FOR="5m"
+export SLS_ALERT_DASHBOARD="internal-alert-analysis"
+export SLS_ALERT_QUERY_TIMESPAN_TYPE="Truncated"
+export SLS_ALERT_QUERY_START="-1d"
+export SLS_ALERT_QUERY_END="absolute"
 
-# 先在控制台初始化内容模板和行动策略，再回填这里
-export CONTENT_TEMPLATE_ID="replace-in-console"
-export ACTION_POLICY_ID="replace-in-console"
+# 告警资源标识与名称（脚本会创建或更新）
+export CONTENT_TEMPLATE_ID="ssl-check"
+export CONTENT_TEMPLATE_NAME="证书临期模版"
+export ACTION_POLICY_ID="ssl-check-action"
+export ACTION_POLICY_NAME="证书临期行动策略"
 
-# 行动策略模板占位（短信/邮件）
-export ALERT_SMS_USERS_JSON='["alice","bob"]'
-export ALERT_SMS_GROUPS_JSON='["oncall"]'
-export ALERT_EMAIL_USERS_JSON='["alice","bob"]'
-export ALERT_EMAIL_GROUPS_JSON='["oncall"]'
+# 通知目标（默认联系人组）
+# 优先使用 ALERT_CONTACT_GROUP_ID；为空时按 ALERT_CONTACT_GROUP_NAME 自动解析 ID。
+export ALERT_CONTACT_GROUP_ID=""
+export ALERT_CONTACT_GROUP_NAME="Default Contact Group"

@@ -19,11 +19,11 @@ Usage:
 Stages:
   local   Verify vars + template rendering + rendered JSON validity
   ram     Verify RAM roles/policies and policy attachment
-  fc      Verify FC service/functions/(optional timer trigger)
+  fc      Verify FC3 functions/(optional timer trigger)
   invoke  Verify OSS output objects exist (inventory + ssl report)
-  sls     Verify target SLS logstore + index
+  sls     Verify SLS project + source/target logstores + indexes
   etl     Verify ETL task exists and print ETL status
-  alert   Verify alert exists and print alert status
+  alert   Verify alert resources and alert status
   all     Run all checks in order
 EOF
 }
@@ -85,10 +85,12 @@ check_local() {
   run_check "render templates" "${RENDER_SCRIPT}" "${VARS_FILE}"
 
   local required_files=(
-    "${RENDERED_DIR}/fc/service.create.json"
     "${RENDERED_DIR}/fc/function.domain_inventory.create.json"
     "${RENDERED_DIR}/fc/function.ssl_checker.create.json"
     "${RENDERED_DIR}/fc/trigger.timer.domain_inventory.json"
+    "${RENDERED_DIR}/sls/project.create.json"
+    "${RENDERED_DIR}/sls/logstore.source.create.json"
+    "${RENDERED_DIR}/sls/logstore.source.index.json"
     "${RENDERED_DIR}/sls/logstore.target.create.json"
     "${RENDERED_DIR}/sls/logstore.target.index.json"
     "${RENDERED_DIR}/sls/etl.create.json"
@@ -109,10 +111,12 @@ check_local() {
   done
 
   local json_files=(
-    "${RENDERED_DIR}/fc/service.create.json"
     "${RENDERED_DIR}/fc/function.domain_inventory.create.json"
     "${RENDERED_DIR}/fc/function.ssl_checker.create.json"
     "${RENDERED_DIR}/fc/trigger.timer.domain_inventory.json"
+    "${RENDERED_DIR}/sls/project.create.json"
+    "${RENDERED_DIR}/sls/logstore.source.create.json"
+    "${RENDERED_DIR}/sls/logstore.source.index.json"
     "${RENDERED_DIR}/sls/logstore.target.create.json"
     "${RENDERED_DIR}/sls/logstore.target.index.json"
     "${RENDERED_DIR}/sls/etl.create.json"
@@ -122,7 +126,13 @@ check_local() {
     run_check "valid json: ${json_file#${SCRIPT_DIR}/}" jq empty "${json_file}"
   done
 
-  if rg -n '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "${RENDERED_DIR}" >/tmp/verify_unresolved_vars.txt 2>/dev/null; then
+  if command -v rg >/dev/null 2>&1; then
+    rg -n '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "${RENDERED_DIR}" >/tmp/verify_unresolved_vars.txt 2>/dev/null || true
+  else
+    grep -R -n '\${[A-Za-z_][A-Za-z0-9_]*}' "${RENDERED_DIR}" >/tmp/verify_unresolved_vars.txt 2>/dev/null || true
+  fi
+
+  if [[ -s /tmp/verify_unresolved_vars.txt ]]; then
     fail "rendered output still has unresolved \${VARS}"
     cat /tmp/verify_unresolved_vars.txt
   else
@@ -148,17 +158,14 @@ check_ram() {
 
 check_fc() {
   echo "== verify: fc =="
-  run_check "service exists: ${FC_SERVICE_NAME}" \
-    aliyun_cmd fc-open GetService --serviceName "${FC_SERVICE_NAME}"
   run_check "function exists: ${FC_DOMAIN_INVENTORY_FUNCTION_NAME}" \
-    aliyun_cmd fc-open GetFunction --serviceName "${FC_SERVICE_NAME}" --functionName "${FC_DOMAIN_INVENTORY_FUNCTION_NAME}"
+    aliyun_cmd fc GetFunction --functionName "${FC_DOMAIN_INVENTORY_FUNCTION_NAME}"
   run_check "function exists: ${FC_SSL_CHECKER_FUNCTION_NAME}" \
-    aliyun_cmd fc-open GetFunction --serviceName "${FC_SERVICE_NAME}" --functionName "${FC_SSL_CHECKER_FUNCTION_NAME}"
+    aliyun_cmd fc GetFunction --functionName "${FC_SSL_CHECKER_FUNCTION_NAME}"
 
   if [[ "${FC_TRIGGER_TIMER_ENABLED}" == "true" ]]; then
     run_check "timer trigger exists: ${FC_TRIGGER_TIMER_NAME}" \
-      aliyun_cmd fc-open GetTrigger \
-      --serviceName "${FC_SERVICE_NAME}" \
+      aliyun_cmd fc GetTrigger \
       --functionName "${FC_DOMAIN_INVENTORY_FUNCTION_NAME}" \
       --triggerName "${FC_TRIGGER_TIMER_NAME}"
   else
@@ -180,6 +187,12 @@ check_invoke_outputs() {
 
 check_sls() {
   echo "== verify: sls =="
+  run_check "project exists: ${SLS_PROJECT}" \
+    aliyun_cmd sls GetProject --project "${SLS_PROJECT}"
+  run_check "source logstore exists: ${SLS_SOURCE_LOGSTORE}" \
+    aliyun_cmd sls GetLogStore --project "${SLS_PROJECT}" --logstore "${SLS_SOURCE_LOGSTORE}"
+  run_check "source logstore index exists" \
+    aliyun_cmd sls GetIndex --project "${SLS_PROJECT}" --logstore "${SLS_SOURCE_LOGSTORE}"
   run_check "target logstore exists: ${SLS_TARGET_LOGSTORE}" \
     aliyun_cmd sls GetLogStore --project "${SLS_PROJECT}" --logstore "${SLS_TARGET_LOGSTORE}"
   run_check "target logstore index exists" \
@@ -199,10 +212,21 @@ check_etl() {
 
 check_alert() {
   echo "== verify: alert =="
+  run_check "render templates" "${RENDER_SCRIPT}" "${VARS_FILE}"
+  run_check "alert resources exist: content_template/action_policy" \
+    python3 "${SCRIPT_DIR}/bootstrap_alert_resources.py" \
+      --content-file "${RENDERED_DIR}/sls/notification.content.md" \
+      --action-file "${RENDERED_DIR}/sls/action.policy.dsl" \
+      --check-only
+
   local alert_json
   if alert_json="$(aliyun_cmd sls GetAlert --project "${SLS_PROJECT}" --alertName "${SLS_ALERT_NAME}" 2>/dev/null)"; then
     pass "alert exists: ${SLS_ALERT_NAME}"
     echo "${alert_json}" | jq -r '.name, .displayName, ("status=" + (.status|tostring))'
+    run_check "alert persisted store is not empty" \
+      bash -lc 'test -n "$(echo "$1" | jq -r ".configuration.queryList[0].store // \"\"")"' _ "${alert_json}"
+    run_check "alert persisted query is not empty" \
+      bash -lc 'test -n "$(echo "$1" | jq -r ".configuration.queryList[0].query // \"\"")"' _ "${alert_json}"
   else
     fail "alert exists: ${SLS_ALERT_NAME}"
   fi
@@ -226,7 +250,6 @@ main() {
   require_cmd aliyun
   require_cmd jq
   require_cmd envsubst
-  require_cmd rg
   load_env
 
   case "${STAGE}" in

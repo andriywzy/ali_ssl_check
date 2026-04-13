@@ -1,5 +1,5 @@
 *
-| where functionName = 'ssl_check'
+| where functionName = 'ssl_checker'
 | parse-regexp message, '(\{.*\})' as alert_json
 | parse-json alert_json
 | where event = 'certificate_below_threshold' and status = 'expiring'

@@ -6,6 +6,10 @@
   "memorySize": ${FC_SSL_CHECKER_MEMORY_MB},
   "timeout": ${FC_SSL_CHECKER_TIMEOUT_SEC},
   "role": "${RAM_ROLE_ARN_SSL_CHECKER}",
+  "logConfig": {
+    "project": "${FC_LOG_PROJECT}",
+    "logstore": "${FC_LOG_LOGSTORE}"
+  },
   "code": {
     "ossBucketName": "${FC_CODE_OSS_BUCKET}",
     "ossObjectName": "${FC_CODE_OBJECT_PREFIX}/${FC_SSL_CHECKER_FUNCTION_NAME}.zip"

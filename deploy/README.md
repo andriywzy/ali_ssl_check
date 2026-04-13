@@ -5,7 +5,7 @@
 - FC 两个函数（`domain_inventory` / `ssl_checker`）
 - SLS ETL 日志重写到新 Logstore
 - SLS 告警规则
-- 告警内容模板、行动策略（控制台一次初始化，ID 回填后由 CLI 持续维护）
+- 告警内容模板、行动策略（脚本自动创建/更新）
 
 ## 1. 准备参数
 
@@ -17,8 +17,20 @@ cp deploy/templates/vars.env.tpl deploy/vars.env
 
 - `OSS_BUCKET`, `OSS_PREFIX`
 - `ACCOUNT_ID`
-- `SLS_PROJECT`, `SLS_SOURCE_LOGSTORE`, `SLS_TARGET_LOGSTORE`
-- `CONTENT_TEMPLATE_ID`, `ACTION_POLICY_ID`（控制台初始化后回填）
+- `FC_RUNTIME`（FC3 推荐 `python3.12`）
+- `FC_LOG_PROJECT`, `FC_LOG_LOGSTORE`
+- `SLS_PROJECT`, `SLS_PROJECT_DESCRIPTION`
+- `SLS_SOURCE_LOGSTORE`, `SLS_TARGET_LOGSTORE`
+- `CONTENT_TEMPLATE_ID=ssl-check`
+- `CONTENT_TEMPLATE_NAME=证书临期模版`
+- `ACTION_POLICY_ID=ssl-check-action`
+- `ACTION_POLICY_NAME=证书临期行动策略`
+- `ALERT_CONTACT_GROUP_NAME=Default Contact Group`（可选填 `ALERT_CONTACT_GROUP_ID`）
+- `SLS_ALERT_QUERY_TIMESPAN_TYPE=Relative`
+- `SLS_ALERT_QUERY_START=-1d`
+- `SLS_ALERT_QUERY_END=absolute`
+- `SLS_ALERT_EVAL_INTERVAL=1d`
+- `SLS_ALERT_DASHBOARD=internal-alert-analysis`
 
 ## 2. 渲染模板
 
@@ -33,9 +45,9 @@ source deploy/vars.env
 
 ```bash
 ./deploy/deploy_cli.sh ram
+./deploy/deploy_cli.sh sls
 ./deploy/deploy_cli.sh fc
 ./deploy/deploy_cli.sh invoke
-./deploy/deploy_cli.sh sls
 ./deploy/deploy_cli.sh etl
 ./deploy/deploy_cli.sh alert
 ```
@@ -72,15 +84,27 @@ source deploy/vars.env
 ./deploy/deploy_cli.sh verify
 ```
 
-## 4. 控制台一次初始化（内容模板 + 行动策略）
+## 4. 自动创建告警模板与行动策略
 
-渲染后查看：
+`deploy_cli.sh alert` 会自动执行：
 
-- `deploy/rendered/sls/notification.content.md`
-- `deploy/rendered/sls/action.policy.dsl`
+- 读取 `deploy/rendered/sls/notification.content.md`
+- 读取 `deploy/rendered/sls/action.policy.dsl`
+- 通过 SLS Resource API upsert：
+  - `sls.alert.content_template`（`CONTENT_TEMPLATE_ID` + `CONTENT_TEMPLATE_NAME`）
+  - `sls.alert.action_policy`（`ACTION_POLICY_ID` + `ACTION_POLICY_NAME`）
+- 自动解析联系人组并关联到行动策略（默认 `Default Contact Group`）
+- 然后创建或更新告警规则
+
+前置依赖：
+
+```bash
+python3 -m pip install aliyun-log-python-sdk
+```
+
+如果你仍想走控制台手工方式，可参考：
+
 - `deploy/rendered/sls/console.bootstrap.md`
-
-按 `console.bootstrap.md` 完成控制台初始化，再把 ID 回填到 `deploy/vars.env`。
 
 ## 5. 后续变更方式
 
@@ -88,6 +112,19 @@ source deploy/vars.env
 
 ```bash
 ./deploy/render_templates.sh
+./deploy/deploy_cli.sh sls
 ./deploy/deploy_cli.sh etl
 ./deploy/deploy_cli.sh alert
 ```
+
+说明：`deploy_cli.sh etl` 会先自动执行 `sls` 资源预检（Project + source/target Logstore），并打印 ETL payload 实际使用的 source/target logstore 名称，便于排查变量配置问题。
+脚本会在提交 SLS 请求前自动把模板 JSON 压缩成单行标准 JSON，避免 body 格式导致的 `LogStoreInfoInvalid`。
+告警查询默认输出明细，最终提交给 SLS 的时间窗口会统一规整为 `Truncated / -1d / absolute`，固定间隔为 `1d`，避免旧变量导致控制台展示异常。
+
+推荐告警创建顺序（避免“有告警无查询统计”）：
+
+1. `./deploy/deploy_cli.sh invoke` 先产生日志。
+2. `./deploy/deploy_cli.sh etl` 把 `expiring` 写入目标 Logstore。
+3. 在目标 Logstore 用查询验证最近 1 天有数据：
+   - `* | where status = "expiring" | select count(1)`
+4. `./deploy/deploy_cli.sh alert` 创建/更新告警规则。

@@ -12,6 +12,12 @@
     "caseSensitive": false
   },
   "keys": {
+    "status": {
+      "type": "text",
+      "token": [],
+      "caseSensitive": false,
+      "doc_value": true
+    },
     "fqdn": {
       "type": "text",
       "token": [
@@ -21,33 +27,8 @@
       "caseSensitive": false,
       "doc_value": true
     },
-    "status": {
-      "type": "text",
-      "token": [],
-      "caseSensitive": false,
-      "doc_value": true
-    },
     "days_remaining": {
       "type": "long",
-      "doc_value": true
-    },
-    "not_after_utc": {
-      "type": "text",
-      "token": [
-        "-",
-        "T",
-        ":",
-        "Z"
-      ],
-      "caseSensitive": false,
-      "doc_value": true
-    },
-    "run_id": {
-      "type": "text",
-      "token": [
-        "-"
-      ],
-      "caseSensitive": false,
       "doc_value": true
     }
   }

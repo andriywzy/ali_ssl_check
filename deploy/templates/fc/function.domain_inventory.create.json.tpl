@@ -6,6 +6,10 @@
   "memorySize": ${FC_DOMAIN_INVENTORY_MEMORY_MB},
   "timeout": ${FC_DOMAIN_INVENTORY_TIMEOUT_SEC},
   "role": "${RAM_ROLE_ARN_DOMAIN_INVENTORY}",
+  "logConfig": {
+    "project": "${FC_LOG_PROJECT}",
+    "logstore": "${FC_LOG_LOGSTORE}"
+  },
   "code": {
     "ossBucketName": "${FC_CODE_OSS_BUCKET}",
     "ossObjectName": "${FC_CODE_OBJECT_PREFIX}/${FC_DOMAIN_INVENTORY_FUNCTION_NAME}.zip"

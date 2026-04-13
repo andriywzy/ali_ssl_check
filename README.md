@@ -253,3 +253,8 @@ source deploy/vars.env
 ./deploy/deploy_cli.sh all
 ./deploy/verify_steps.sh all
 ```
+
+其中 `deploy_cli.sh sls` 阶段会自动创建并校验 SLS `Project`、源日志 `Logstore`（FC 日志）和目标告警 `Logstore`（临期证书重写结果）。
+
+说明：部署脚本已切换到 FC3 API（`aliyun fc`，`2023-03-30`），`FC_RUNTIME` 建议使用 `python3.12`。
+说明：`deploy_cli.sh alert` 会自动创建/更新 SLS 的内容模板与行动策略（默认模板标识符 `ssl-check`、模板名称 `证书临期模版`，依赖 `aliyun-log-python-sdk`）。
