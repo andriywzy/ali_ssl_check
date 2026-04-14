@@ -11,6 +11,15 @@
         "acs:oss:*:*:<your-bucket>",
         "acs:oss:*:*:<your-bucket>/<your-prefix>/*"
       ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "log:PostLogStoreLogs"
+      ],
+      "Resource": [
+        "acs:log:*:*:project/<log-project>/logstore/<log-logstore>"
+      ]
     }
   ]
 }

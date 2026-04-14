@@ -93,6 +93,89 @@ aliyun_cmd() {
   fi
 }
 
+run_ignore_already_exists() {
+  local expected_error="$1"
+  shift
+  local output
+  if output="$("$@" 2>&1)"; then
+    [[ -n "${output}" ]] && echo "${output}"
+    return 0
+  fi
+
+  if echo "${output}" | grep -q "${expected_error}"; then
+    echo "${output}"
+    return 0
+  fi
+
+  echo "${output}"
+  return 1
+}
+
+ensure_sls_project_exists() {
+  local project_name="$1"
+  local project_body_file="$2"
+  local get_output
+
+  echo "[sls] ensure project: ${project_name}"
+  if ! aliyun_cmd sls GetProject --project "${project_name}" >/dev/null 2>&1; then
+    run_ignore_already_exists "ProjectAlreadyExist" \
+      aliyun_cmd sls CreateProject \
+      --body "$(json_body "${project_body_file}")"
+  fi
+
+  if ! get_output="$(aliyun_cmd sls GetProject --project "${project_name}" 2>&1)"; then
+    if echo "${get_output}" | grep -q "The project does not belong to you"; then
+      cat <<EOF
+[sls] project name is not usable by current account: ${project_name}
+This project name already exists under another account.
+Please change both FC_LOG_PROJECT and SLS_PROJECT in deploy/vars.env to a unique value, for example:
+  ssl-check-${ACCOUNT_ID}
+Then rerun:
+  ./deploy/render_templates.sh
+  ./deploy/deploy_cli.sh sls
+EOF
+      exit 1
+    fi
+    echo "${get_output}"
+    exit 1
+  fi
+}
+
+ensure_sls_logstore_exists() {
+  local project_name="$1"
+  local logstore_name="$2"
+  local logstore_body_file="$3"
+
+  echo "[sls] ensure logstore: ${project_name}/${logstore_name}"
+  if ! aliyun_cmd sls GetLogStore --project "${project_name}" --logstore "${logstore_name}" >/dev/null 2>&1; then
+    run_ignore_already_exists "LogStoreAlreadyExist" \
+      aliyun_cmd sls CreateLogStore \
+      --project "${project_name}" \
+      --body "$(json_body "${logstore_body_file}")"
+  fi
+
+  aliyun_cmd sls GetLogStore --project "${project_name}" --logstore "${logstore_name}" >/dev/null
+}
+
+ensure_sls_index_exists() {
+  local project_name="$1"
+  local logstore_name="$2"
+  local index_body_file="$3"
+
+  echo "[sls] ensure index: ${project_name}/${logstore_name}"
+  if aliyun_cmd sls GetIndex --project "${project_name}" --logstore "${logstore_name}" >/dev/null 2>&1; then
+    aliyun_cmd sls UpdateIndex \
+      --project "${project_name}" \
+      --logstore "${logstore_name}" \
+      --body "$(json_body "${index_body_file}")"
+  else
+    aliyun_cmd sls CreateIndex \
+      --project "${project_name}" \
+      --logstore "${logstore_name}" \
+      --body "$(json_body "${index_body_file}")"
+  fi
+}
+
 render_all() {
   echo "[render] rendering templates..."
   "${RENDER_SCRIPT}" "${VARS_FILE}"
@@ -103,17 +186,63 @@ prepare_policy_docs() {
   sed \
     -e "s#<your-bucket>#${OSS_BUCKET}#g" \
     -e "s#<your-prefix>#${OSS_PREFIX}#g" \
+    -e "s#<log-project>#${FC_LOG_PROJECT}#g" \
+    -e "s#<log-logstore>#${FC_LOG_LOGSTORE}#g" \
     "${ROOT_DIR}/policies/domain-inventory-role-policy.json" \
     >"${RENDERED_DIR}/policies/domain-inventory-role-policy.json"
 
   sed \
     -e "s#<your-bucket>#${OSS_BUCKET}#g" \
     -e "s#<your-prefix>#${OSS_PREFIX}#g" \
+    -e "s#<log-project>#${FC_LOG_PROJECT}#g" \
+    -e "s#<log-logstore>#${FC_LOG_LOGSTORE}#g" \
     "${ROOT_DIR}/policies/ssl-checker-role-policy.json" \
     >"${RENDERED_DIR}/policies/ssl-checker-role-policy.json"
 }
 
+ensure_custom_policy() {
+  local policy_name="$1"
+  local description="$2"
+  local policy_file="$3"
+
+  if ! aliyun_cmd ram GetPolicy --PolicyType Custom --PolicyName "${policy_name}" >/dev/null 2>&1; then
+    aliyun_cmd ram CreatePolicy \
+      --PolicyName "${policy_name}" \
+      --Description "${description}" \
+      --PolicyDocument "$(cat "${policy_file}")"
+    return 0
+  fi
+
+  aliyun_cmd ram CreatePolicyVersion \
+    --PolicyName "${policy_name}" \
+    --SetAsDefault true \
+    --RotateStrategy DeleteOldestNonDefaultVersionWhenLimitExceeded \
+    --PolicyDocument "$(cat "${policy_file}")" >/dev/null
+}
+
+validate_log_binding() {
+  require_env FC_LOG_PROJECT
+  require_env FC_LOG_LOGSTORE
+  require_env SLS_PROJECT
+  require_env SLS_SOURCE_LOGSTORE
+
+  if [[ "${FC_LOG_PROJECT}" != "${SLS_PROJECT}" ]]; then
+    echo "FC_LOG_PROJECT and SLS_PROJECT should match for this deployment."
+    echo "FC_LOG_PROJECT=${FC_LOG_PROJECT}"
+    echo "SLS_PROJECT=${SLS_PROJECT}"
+    exit 1
+  fi
+
+  if [[ "${FC_LOG_LOGSTORE}" != "${SLS_SOURCE_LOGSTORE}" ]]; then
+    echo "FC_LOG_LOGSTORE and SLS_SOURCE_LOGSTORE should match for this deployment."
+    echo "FC_LOG_LOGSTORE=${FC_LOG_LOGSTORE}"
+    echo "SLS_SOURCE_LOGSTORE=${SLS_SOURCE_LOGSTORE}"
+    exit 1
+  fi
+}
+
 stage_ram() {
+  validate_log_binding
   echo "[ram] prepare policy docs..."
   prepare_policy_docs
 
@@ -134,20 +263,16 @@ stage_ram() {
   fi
 
   echo "[ram] ensure policy: ${RAM_POLICY_DOMAIN_INVENTORY}"
-  if ! aliyun_cmd ram GetPolicy --PolicyType Custom --PolicyName "${RAM_POLICY_DOMAIN_INVENTORY}" >/dev/null 2>&1; then
-    aliyun_cmd ram CreatePolicy \
-      --PolicyName "${RAM_POLICY_DOMAIN_INVENTORY}" \
-      --Description "domain inventory minimal policy" \
-      --PolicyDocument "$(cat "${RENDERED_DIR}/policies/domain-inventory-role-policy.json")"
-  fi
+  ensure_custom_policy \
+    "${RAM_POLICY_DOMAIN_INVENTORY}" \
+    "domain inventory minimal policy" \
+    "${RENDERED_DIR}/policies/domain-inventory-role-policy.json"
 
   echo "[ram] ensure policy: ${RAM_POLICY_SSL_CHECKER}"
-  if ! aliyun_cmd ram GetPolicy --PolicyType Custom --PolicyName "${RAM_POLICY_SSL_CHECKER}" >/dev/null 2>&1; then
-    aliyun_cmd ram CreatePolicy \
-      --PolicyName "${RAM_POLICY_SSL_CHECKER}" \
-      --Description "ssl checker minimal policy" \
-      --PolicyDocument "$(cat "${RENDERED_DIR}/policies/ssl-checker-role-policy.json")"
-  fi
+  ensure_custom_policy \
+    "${RAM_POLICY_SSL_CHECKER}" \
+    "ssl checker minimal policy" \
+    "${RENDERED_DIR}/policies/ssl-checker-role-policy.json"
 
   echo "[ram] attach policy to roles..."
   aliyun_cmd ram AttachPolicyToRole \
@@ -185,7 +310,11 @@ stage_fc() {
   require_env FC_RUNTIME
   require_env FC_LOG_PROJECT
   require_env FC_LOG_LOGSTORE
+  validate_log_binding
   validate_fc_runtime
+  echo "[fc] preflight sls resources"
+  stage_sls
+  render_all
   upload_packages
 
   echo "[fc] ensure function: ${FC_DOMAIN_INVENTORY_FUNCTION_NAME}"
@@ -240,6 +369,7 @@ stage_invoke() {
 }
 
 stage_sls() {
+  validate_log_binding
   require_env SLS_SOURCE_LOGSTORE_TTL_DAYS
   require_env SLS_SOURCE_LOGSTORE_SHARD_COUNT
   require_env SLS_TARGET_LOGSTORE_TTL_DAYS
@@ -249,51 +379,14 @@ stage_sls() {
   validate_uint_env SLS_TARGET_LOGSTORE_TTL_DAYS
   validate_uint_env SLS_TARGET_LOGSTORE_SHARD_COUNT
 
-  echo "[sls] ensure project: ${SLS_PROJECT}"
-  if ! aliyun_cmd sls GetProject --project "${SLS_PROJECT}" >/dev/null 2>&1; then
-    aliyun_cmd sls CreateProject \
-      --body "$(json_body "${RENDERED_DIR}/sls/project.create.json")"
-  fi
+  echo "[sls] ensure fc log resources"
+  ensure_sls_project_exists "${FC_LOG_PROJECT}" "${RENDERED_DIR}/sls/project.create.json"
+  ensure_sls_logstore_exists "${FC_LOG_PROJECT}" "${FC_LOG_LOGSTORE}" "${RENDERED_DIR}/sls/logstore.source.create.json"
+  ensure_sls_index_exists "${FC_LOG_PROJECT}" "${FC_LOG_LOGSTORE}" "${RENDERED_DIR}/sls/logstore.source.index.json"
 
-  echo "[sls] ensure source logstore: ${SLS_SOURCE_LOGSTORE}"
-  if ! aliyun_cmd sls GetLogStore --project "${SLS_PROJECT}" --logstore "${SLS_SOURCE_LOGSTORE}" >/dev/null 2>&1; then
-    aliyun_cmd sls CreateLogStore \
-      --project "${SLS_PROJECT}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.source.create.json")"
-  fi
-
-  echo "[sls] ensure source logstore index"
-  if aliyun_cmd sls GetIndex --project "${SLS_PROJECT}" --logstore "${SLS_SOURCE_LOGSTORE}" >/dev/null 2>&1; then
-    aliyun_cmd sls UpdateIndex \
-      --project "${SLS_PROJECT}" \
-      --logstore "${SLS_SOURCE_LOGSTORE}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.source.index.json")"
-  else
-    aliyun_cmd sls CreateIndex \
-      --project "${SLS_PROJECT}" \
-      --logstore "${SLS_SOURCE_LOGSTORE}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.source.index.json")"
-  fi
-
-  echo "[sls] ensure target logstore: ${SLS_TARGET_LOGSTORE}"
-  if ! aliyun_cmd sls GetLogStore --project "${SLS_PROJECT}" --logstore "${SLS_TARGET_LOGSTORE}" >/dev/null 2>&1; then
-    aliyun_cmd sls CreateLogStore \
-      --project "${SLS_PROJECT}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.target.create.json")"
-  fi
-
-  echo "[sls] ensure target logstore index"
-  if aliyun_cmd sls GetIndex --project "${SLS_PROJECT}" --logstore "${SLS_TARGET_LOGSTORE}" >/dev/null 2>&1; then
-    aliyun_cmd sls UpdateIndex \
-      --project "${SLS_PROJECT}" \
-      --logstore "${SLS_TARGET_LOGSTORE}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.target.index.json")"
-  else
-    aliyun_cmd sls CreateIndex \
-      --project "${SLS_PROJECT}" \
-      --logstore "${SLS_TARGET_LOGSTORE}" \
-      --body "$(json_body "${RENDERED_DIR}/sls/logstore.target.index.json")"
-  fi
+  echo "[sls] ensure alert resources"
+  ensure_sls_logstore_exists "${SLS_PROJECT}" "${SLS_TARGET_LOGSTORE}" "${RENDERED_DIR}/sls/logstore.target.create.json"
+  ensure_sls_index_exists "${SLS_PROJECT}" "${SLS_TARGET_LOGSTORE}" "${RENDERED_DIR}/sls/logstore.target.index.json"
 }
 
 build_etl_payload() {
@@ -304,6 +397,55 @@ build_etl_payload() {
   jq --arg script_text "${script_text}" \
     '.configuration.script = $script_text' \
     "${src}" >"${out}"
+}
+
+get_etl_status() {
+  local etl_json
+  if ! etl_json="$(aliyun_cmd sls GetETL --project "${SLS_PROJECT}" --etlName "${SLS_ETL_NAME}" 2>/dev/null)"; then
+    return 1
+  fi
+  echo "${etl_json}" | jq -r '.status // ""'
+}
+
+wait_for_etl_idle() {
+  local status=""
+  local attempt
+  for attempt in $(seq 1 24); do
+    status="$(get_etl_status || true)"
+    case "${status}" in
+      ""|RUNNING|STOPPED|FAILED|SUCCESS)
+        [[ -n "${status}" ]] && echo "[etl] current status: ${status}"
+        return 0
+        ;;
+      STARTING|STOPPING|UPDATING|CREATING|RESTARTING)
+        echo "[etl] current status: ${status}, waiting..."
+        sleep 5
+        ;;
+      *)
+        echo "[etl] current status: ${status}"
+        return 0
+        ;;
+    esac
+  done
+
+  echo "[etl] timed out waiting for ETL to become idle. last status: ${status}"
+  return 1
+}
+
+start_etl_if_needed() {
+  local status
+  status="$(get_etl_status || true)"
+  case "${status}" in
+    RUNNING|STARTING|RESTARTING|UPDATING|CREATING|STOPPING)
+      echo "[etl] skip start, status is ${status}"
+      ;;
+    STOPPED|FAILED|SUCCESS|"")
+      aliyun_cmd sls StartETL --project "${SLS_PROJECT}" --etlName "${SLS_ETL_NAME}"
+      ;;
+    *)
+      echo "[etl] skip start, unexpected status is ${status}"
+      ;;
+  esac
 }
 
 stage_etl() {
@@ -320,6 +462,7 @@ stage_etl() {
 
   echo "[etl] ensure etl task: ${SLS_ETL_NAME}"
   if aliyun_cmd sls GetETL --project "${SLS_PROJECT}" --etlName "${SLS_ETL_NAME}" >/dev/null 2>&1; then
+    wait_for_etl_idle
     aliyun_cmd sls UpdateETL \
       --project "${SLS_PROJECT}" \
       --etlName "${SLS_ETL_NAME}" \
@@ -330,7 +473,8 @@ stage_etl() {
       --body "$(json_body "${RENDERED_DIR}/sls/etl.create.final.json")"
   fi
 
-  aliyun_cmd sls StartETL --project "${SLS_PROJECT}" --etlName "${SLS_ETL_NAME}"
+  wait_for_etl_idle
+  start_etl_if_needed
 }
 
 build_alert_payload() {

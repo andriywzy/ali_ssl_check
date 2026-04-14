@@ -38,8 +38,8 @@ export RAM_ROLE_ARN_SSL_CHECKER="acs:ram::${ACCOUNT_ID}:role/${RAM_ROLE_SSL_CHEC
 # -------------------------------
 # FC3 Function
 # -------------------------------
-export FC_LOG_PROJECT="your-sls-project"
-export FC_LOG_LOGSTORE="your-fc-logstore"
+export FC_LOG_PROJECT="ssl-check-${ACCOUNT_ID}"
+export FC_LOG_LOGSTORE="fc-runtime-logs"
 export FC_RUNTIME="python3.12"
 
 export FC_DOMAIN_INVENTORY_FUNCTION_NAME="domain_inventory"
@@ -75,8 +75,8 @@ export SSL_REPORT_SUMMARY_OBJECT_KEY="${OSS_PREFIX}/ssl-report/summary.json"
 # -------------------------------
 # SLS：日志重写（ETL）
 # -------------------------------
-export SLS_PROJECT="your-sls-project"
-export SLS_SOURCE_LOGSTORE="your-fc-logstore"
+export SLS_PROJECT="${FC_LOG_PROJECT}"
+export SLS_SOURCE_LOGSTORE="${FC_LOG_LOGSTORE}"
 export SLS_PROJECT_DESCRIPTION="ssl check observability project"
 export SLS_SOURCE_LOGSTORE_TTL_DAYS="30"
 export SLS_SOURCE_LOGSTORE_SHARD_COUNT="2"

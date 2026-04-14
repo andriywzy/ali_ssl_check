@@ -32,6 +32,10 @@ cp deploy/templates/vars.env.tpl deploy/vars.env
 - `SLS_ALERT_EVAL_INTERVAL=1d`
 - `SLS_ALERT_DASHBOARD=internal-alert-analysis`
 
+说明：
+- `FC_LOG_PROJECT` / `SLS_PROJECT` 建议使用你账号下的唯一名称，例如 `ssl-check-${ACCOUNT_ID}`。
+- 如果出现 `ProjectAlreadyExist` 且随后提示 `The project does not belong to you`，说明该 Project 名已被其他账号占用，需要更换为新的唯一名称。
+
 ## 2. 渲染模板
 
 ```bash
